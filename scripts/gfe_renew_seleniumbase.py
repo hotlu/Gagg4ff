@@ -451,23 +451,83 @@ def handle_turnstile(sb, timeout=90, auto_wait=25):
 
 
 def click_extend(sb):
+    end = time.time() + 20
     selectors = [
         "button.extend",
-        "//button[contains(., '+ 90 min')]",
-        "//button[contains(., '+90 min')]",
-        "//button[contains(., '90 min')]",
+        "//button[contains(normalize-space(.), '+ 90 min')]",
+        "//button[contains(normalize-space(.), '+90 min')]",
+        "//button[contains(normalize-space(.), '90 min')]",
+        "//button[contains(normalize-space(.), 'Extend')]",
+        "//button[contains(normalize-space(.), 'extend')]",
     ]
-    for selector in selectors:
-        try:
-            if selector.startswith("//"):
-                if sb.is_element_visible(selector):
+
+    while time.time() < end:
+        for selector in selectors:
+            try:
+                if selector.startswith("//"):
+                    if sb.is_element_visible(selector):
+                        sb.click(selector)
+                        log(f"Clicked extend button via selector: {selector}")
+                        return True
+                elif sb.is_element_visible(selector):
                     sb.click(selector)
+                    log(f"Clicked extend button via selector: {selector}")
                     return True
-            elif sb.is_element_visible(selector):
-                sb.click(selector)
+            except Exception:
+                continue
+
+        try:
+            result = sb.execute_script("""
+                const buttons = Array.from(document.querySelectorAll('button'));
+                const details = buttons.map((button, index) => {
+                    const rect = button.getBoundingClientRect();
+                    return {
+                        index,
+                        text: (button.innerText || button.textContent || '').replace(/\\s+/g, ' ').trim(),
+                        disabled: !!button.disabled || button.getAttribute('aria-disabled') === 'true',
+                        className: button.className || '',
+                        visible: rect.width > 0 && rect.height > 0,
+                        x: Math.round(rect.x),
+                        y: Math.round(rect.y),
+                        width: Math.round(rect.width),
+                        height: Math.round(rect.height)
+                    };
+                });
+
+                const target = buttons.find((button) => {
+                    const text = (button.innerText || button.textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+                    const disabled = !!button.disabled || button.getAttribute('aria-disabled') === 'true';
+                    if (disabled) return false;
+                    if (text.includes('cooldown')) return false;
+                    if (text.includes('90') && text.includes('min')) return true;
+                    if (text.includes('extend') || text.includes('renew')) return true;
+                    if (button.classList.contains('extend')) return true;
+                    return false;
+                });
+
+                if (!target) {
+                    return {clicked: false, details};
+                }
+
+                target.scrollIntoView({block: 'center', inline: 'center'});
+                target.click();
+                return {
+                    clicked: true,
+                    text: (target.innerText || target.textContent || '').replace(/\\s+/g, ' ').trim(),
+                    details
+                };
+            """)
+            if result and result.get("clicked"):
+                log(f"Clicked extend button via JS scan: {result.get('text')}")
                 return True
-        except Exception:
-            continue
+            if result and result.get("details"):
+                sample = result["details"][:12]
+                log(f"Extend button not found yet. Visible buttons: {json.dumps(sample, ensure_ascii=False)}")
+        except Exception as exc:
+            log(f"JS extend button scan failed: {exc}")
+
+        time.sleep(1)
+
     return False
 
 
